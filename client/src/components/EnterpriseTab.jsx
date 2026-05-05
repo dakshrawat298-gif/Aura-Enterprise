@@ -108,6 +108,7 @@ export default function EnterpriseTab() {
   const [recipients, setRecipients] = useState([{ ...EMPTY_RECIPIENT }]);
   const [txStatuses, setTxStatuses] = useState([]);
   const [txSigs, setTxSigs] = useState([]);
+  const [stealthAddresses, setStealthAddresses] = useState([]);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDone, setBatchDone] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -219,6 +220,14 @@ export default function EnterpriseTab() {
     });
   };
 
+  const setStealthAddress = (index, addr) => {
+    setStealthAddresses((prev) => {
+      const next = [...prev];
+      next[index] = addr;
+      return next;
+    });
+  };
+
   const totalAmount = recipients.reduce(
     (sum, r) => sum + (parseFloat(r.amount) || 0),
     0
@@ -245,6 +254,7 @@ export default function EnterpriseTab() {
     setCsvFeedback(null);
     setCurrentIndex(-1);
     setTxSigs(new Array(recipients.length).fill(null));
+    setStealthAddresses(new Array(recipients.length).fill(null));
     setTxStatuses(new Array(recipients.length).fill(TX_STATUS.IDLE));
 
     const {
@@ -299,6 +309,7 @@ export default function EnterpriseTab() {
         const { stealthPublicKey: stealthPubKeyStr, ephemeralPublicKey: ephemeralHex } =
           await stealthRes.json();
         const stealthPubKey = new PublicKey(stealthPubKeyStr);
+        setStealthAddress(i, stealthPubKeyStr);
 
         setEmployeeStatus(i, TX_STATUS.BUILDING);
         const senderAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, publicKey);
@@ -385,9 +396,42 @@ export default function EnterpriseTab() {
     setBatchDone(true);
   };
 
+  const handleExportReport = () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const header = [
+      'Employee Public Key',
+      'Derived Stealth Address',
+      'Amount Paid (USDC)',
+      'Status',
+      'Transaction Signature',
+    ].join(',');
+
+    const rows = recipients.map((r, i) => {
+      const status = txStatuses[i] === TX_STATUS.SUCCESS ? 'Success' : 'Failed';
+      const stealth = stealthAddresses[i] || '';
+      const sig = txSigs[i] || '';
+      const amount = parseFloat(r.amount || 0).toFixed(6);
+      return [r.address, stealth, amount, status, sig]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(',');
+    });
+
+    const csv = [header, ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `aura-payroll-report-${timestamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleReset = () => {
     setTxStatuses([]);
     setTxSigs([]);
+    setStealthAddresses([]);
     setBatchDone(false);
     setGlobalError(null);
     setCsvFeedback(null);
@@ -705,9 +749,24 @@ export default function EnterpriseTab() {
             : 'Disburse Payroll'}
         </button>
       ) : (
-        <button onClick={handleReset} className="btn-secondary">
-          Start New Payroll Run
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={handleExportReport}
+            className="w-full py-4 rounded-2xl font-semibold text-sm tracking-wide transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2.5
+              bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 text-emerald-300
+              hover:from-emerald-500/30 hover:to-teal-500/30 hover:border-emerald-400/50 hover:text-emerald-200"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            Download Payroll Report (CSV)
+          </button>
+          <button onClick={handleReset} className="btn-secondary">
+            Start New Payroll Run
+          </button>
+        </div>
       )}
 
       {!connected && (
