@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply bg-aura-dark text-white;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-2xl;
+    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  .glass-input {
+    @apply w-full bg-white/[0.06] border border-white/[0.1] rounded-xl px-4 py-3
+           text-white placeholder-white/30 text-sm outline-none
+           focus:border-aura-glow/50 focus:ring-1 focus:ring-aura-glow/30
+           transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply w-full py-4 rounded-2xl font-semibold text-white text-base
+           bg-gradient-to-r from-aura-violet to-aura-purple
+           active:scale-[0.98] transition-all duration-150
+           disabled:opacity-40 disabled:cursor-not-allowed;
+    box-shadow: 0 0 24px rgba(124, 58, 237, 0.4);
+  }
+
+  .btn-secondary {
+    @apply w-full py-4 rounded-2xl font-semibold text-aura-glow text-base
+           border border-aura-glow/30 bg-transparent
+           active:scale-[0.98] transition-all duration-150
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .tab-active {
+    @apply bg-gradient-to-r from-aura-violet to-aura-purple text-white;
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.5);
+  }
+
+  .tab-inactive {
+    @apply text-white/40 bg-transparent;
+  }
+}
+
+/* Wallet adapter overrides */
+.wallet-adapter-button {
+  font-family: inherit !important;
+}

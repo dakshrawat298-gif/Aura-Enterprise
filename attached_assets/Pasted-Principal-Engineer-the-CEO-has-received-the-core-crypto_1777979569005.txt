@@ -1,0 +1,91 @@
+Principal Engineer, the CEO has received the core cryptography logic from our backend experts. 
+
+I am a Vibecoder. I will NOT manually create files or paste code. You have workspace edit permissions, so you will do the implementation directly.
+
+Here is the complete TypeScript logic for the Stealth Address generation and USDC transfer. 
+
+YOUR STRICT TASKS (EXECUTE THEM IN THE WORKSPACE):
+1. Create a new file for this logic (e.g., `backend/utils/stealth_transfer.ts`). If our Node environment is pure JS, configure `tsx` or `ts-node` so we can run this TypeScript code, or compile it safely.
+2. Inject this exact code into that file.
+3. Provide me the exact shell command to install the missing dependencies: `@solana/web3.js`, `@solana/spl-token`, `@noble/curves`, `@noble/hashes`.
+4. Update our Express `server.js` to import this utility and create an API route (e.g., `POST /api/stealth-transfer`) that our Vite React frontend will call.
+
+Here is the raw code to implement:
+
+import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction, ComputeBudgetProgram } from '@solana/web3.js';
+import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, createTransferInstruction, getAccount, TokenAccountNotFoundError, TokenInvalidAccountOwnerError } from '@solana/spl-token';
+import { ed25519 } from '@noble/curves/ed25519';
+import { sha256 } from '@noble/hashes/sha256';
+
+const DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14vA1jJZRu2KptW37gZYGQEiAT');
+const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
+
+export interface StealthAddressResult { stealthPublicKey: PublicKey; ephemeralPublicKey: Uint8Array; }
+
+function bytesToBigInt(bytes: Uint8Array): bigint { return BigInt('0x' + Buffer.from(bytes).toString('hex')); }
+
+async function withRpcRetry<T>(fn: () => Promise<T>, maxRetries: number = 5): Promise<T> {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try { return await fn(); } 
+        catch (error: any) {
+            const isRateLimit = error?.message?.includes('429') || error?.message?.includes('Too Many Requests');
+            if (isRateLimit && attempt < maxRetries - 1) {
+                const backoffMs = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+                console.warn(`[RPC Rate Limit] Retrying in ${Math.round(backoffMs)}ms...`);
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+                attempt++;
+            } else { throw error; }
+        }
+    }
+    throw new Error('Max RPC retries exceeded');
+}
+
+export function generateStealthAddress(recipientPublicKey: string): StealthAddressResult {
+    try {
+        const receiverPubBytes = new PublicKey(recipientPublicKey).toBytes();
+        const receiverPoint = ed25519.ProjectivePoint.fromHex(receiverPubBytes);
+        const ephemeralPriv = ed25519.utils.randomPrivateKey();
+        const ephemeralPub = ed25519.getPublicKey(ephemeralPriv);
+        const ephemeralPrivBigInt = bytesToBigInt(ephemeralPriv) % ed25519.CURVE.n;
+        const sharedSecretPoint = receiverPoint.multiply(ephemeralPrivBigInt);
+        const hBytes = sha256(sharedSecretPoint.toRawBytes());
+        const hBigInt = bytesToBigInt(hBytes) % ed25519.CURVE.n;
+        const hG = ed25519.ProjectivePoint.BASE.multiply(hBigInt);
+        const stealthPoint = receiverPoint.add(hG);
+        return { stealthPublicKey: new PublicKey(stealthPoint.toRawBytes()), ephemeralPublicKey: ephemeralPub };
+    } catch (error) { throw new Error(`Failed to generate stealth address`); }
+}
+
+export async function executeStealthUSDCTransfer(senderKeypair: Keypair, recipientPublicKey: string, amount: number | bigint): Promise<string> {
+    const connection = new Connection(DEVNET_RPC_URL, 'confirmed');
+    try {
+        const { stealthPublicKey, ephemeralPublicKey } = generateStealthAddress(recipientPublicKey);
+        const senderAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, senderKeypair.publicKey);
+        const stealthAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, stealthPublicKey, true);
+        
+        await withRpcRetry(async () => {
+            const accountInfo = await getAccount(connection, senderAta);
+            if (BigInt(accountInfo.amount) < BigInt(amount)) throw new Error('Insufficient USDC balance');
+        });
+
+        const transaction = new Transaction();
+        transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5000 }));
+        transaction.add(createAssociatedTokenAccountInstruction(senderKeypair.publicKey, stealthAta, stealthPublicKey, DEVNET_USDC_MINT));
+        transaction.add(createTransferInstruction(senderAta, stealthAta, senderKeypair.publicKey, amount));
+        
+        const ephemeralHex = Buffer.from(ephemeralPublicKey).toString('hex');
+        transaction.add(new TransactionInstruction({ keys: [], programId: MEMO_PROGRAM_ID, data: Buffer.from(`Aura-Enterprise|Stealth|${ephemeralHex}`, 'utf-8') }));
+
+        return await withRpcRetry(async () => {
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = senderKeypair.publicKey;
+            const txSig = await sendAndConfirmTransaction(connection, transaction, [senderKeypair], { commitment: 'confirmed', maxRetries: 3 });
+            return txSig;
+        });
+    } catch (error) { throw error; }
+}
+
+Do not give me instructions on how to paste this manually. Write it to the file system directly using your agent capabilities.
