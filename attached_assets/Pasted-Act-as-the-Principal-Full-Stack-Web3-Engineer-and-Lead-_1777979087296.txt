@@ -1,0 +1,33 @@
+Act as the Principal Full-Stack Web3 Engineer and Lead UI/UX Designer. 
+I am the CEO. We are building "Aura-Enterprise", a mobile-first, confidential payroll and tipping application on Solana.
+
+My Replit environment is currently set to standard Node.js. Before we write any code, you must understand the complete architecture, design system, and our step-by-step workflow. You will act as my expert guide and execute this project sequentially.
+
+### 1. PROJECT OVERVIEW (PRD)
+- **Product:** Aura-Enterprise.
+- **Core Function:** A unified mobile dashboard where Web3 companies can do batch USDC payroll (Enterprise Tab) and fans can send anonymous USDC tips to creators (Creator Tab) using Umbra Stealth Addresses.
+- **Target Audience:** Solana Web3 founders and fans using mobile wallets (Phantom/Solflare via in-app browser).
+
+### 2. TECH STACK & SYSTEM DESIGN
+- **Backend:** Node.js with Express (to handle stealth cryptography logic and API routes securely).
+- **Frontend:** React.js built via Vite (served by or alongside the Node server).
+- **Styling:** Tailwind CSS.
+- **Web3 Integration:** @solana/web3.js, @solana/wallet-adapter-react.
+- **Architecture Flow:** The React frontend will capture the user's Phantom wallet connection and inputs. It will call our Node.js Express backend API, which will execute the Umbra Stealth Address logic (I will provide the complex logic for the backend later).
+
+### 3. UI/UX DESIGN SYSTEM (Strict Rules)
+- **Mobile-First:** The entire layout must be optimized for an iPhone screen size. No desktop-only horizontal layouts.
+- **Aesthetic:** Dark mode, Apple-grade Glassmorphism. Deep background blurs (backdrop-blur-xl), subtle glowing borders, semi-transparent dark cards (bg-black/40), and minimalist typography.
+- **Zero-UI Concept:** Hide complex blockchain data. Users should only see clean buttons like "Disburse Payroll" or "Send Tip". No raw transaction hashes cluttering the screen.
+
+### 4. FEATURE BREAKDOWN (Our Workflow)
+We will build this in strict phases. DO NOT jump ahead.
+- **Phase 1:** Initialize a React frontend (using Vite) inside this Node.js environment and set up Tailwind CSS for glassmorphism. Create a basic Express server to serve the app.
+- **Phase 2:** Implement the Solana Wallet Adapter wrapper in the React frontend so users can connect Phantom.
+- **Phase 3:** Build the main Dashboard UI with a toggle mechanism between "Enterprise" (Payroll Form) and "Creator" (Tipping Form).
+- **Phase 4:** Setup the Node.js Express backend routes for the stealth logic (I will provide the Google AI Studio script for this phase).
+
+### YOUR FIRST TASK:
+Acknowledge that you understand this Master Document and the constraint that we are working within a Node.js Repl. 
+Then, output the exact proposed **Folder and File Structure** (showing where the backend and frontend will live). 
+Do NOT write any application code yet. End your response by asking: "CEO, should we proceed to write the code and commands for Phase 1?"
