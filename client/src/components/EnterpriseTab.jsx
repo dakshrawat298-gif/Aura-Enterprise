@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 
 const EMPTY_RECIPIENT = { address: '', amount: '' };
@@ -43,6 +43,64 @@ const STATUS_DOT = {
   [TX_STATUS.FAILED]: 'bg-red-400',
 };
 
+function parseCSV(text) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length === 0) {
+    throw new Error('CSV file is empty.');
+  }
+
+  const firstLine = lines[0].toLowerCase().replace(/\s/g, '');
+  const hasHeader =
+    firstLine.includes('walletaddress') ||
+    firstLine.includes('address') ||
+    firstLine.includes('wallet');
+
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  if (dataLines.length === 0) {
+    throw new Error('CSV has a header but no data rows.');
+  }
+
+  const parsed = [];
+  const errors = [];
+
+  dataLines.forEach((line, idx) => {
+    const rowNum = hasHeader ? idx + 2 : idx + 1;
+    const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
+
+    if (cols.length < 2) {
+      errors.push(`Row ${rowNum}: expected 2 columns (walletAddress, amount), found ${cols.length}.`);
+      return;
+    }
+
+    const address = cols[0].trim();
+    const rawAmount = cols[1].trim();
+    const amount = parseFloat(rawAmount);
+
+    if (!address || address.length < 32) {
+      errors.push(`Row ${rowNum}: "${address}" does not look like a valid Solana address.`);
+      return;
+    }
+
+    if (isNaN(amount) || amount <= 0) {
+      errors.push(`Row ${rowNum}: amount "${rawAmount}" is not a valid positive number.`);
+      return;
+    }
+
+    parsed.push({ address, amount: String(amount) });
+  });
+
+  if (errors.length > 0 && parsed.length === 0) {
+    throw new Error(errors[0]);
+  }
+
+  return { rows: parsed, skippedErrors: errors };
+}
+
 export default function EnterpriseTab() {
   const { connection } = useConnection();
   const { publicKey, sendTransaction, connected } = useWallet();
@@ -54,6 +112,79 @@ export default function EnterpriseTab() {
   const [batchDone, setBatchDone] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [globalError, setGlobalError] = useState(null);
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [csvFeedback, setCsvFeedback] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const processCSVFile = useCallback((file) => {
+    setCsvFeedback(null);
+    setGlobalError(null);
+
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv') && file.type !== 'text/csv' && file.type !== 'text/plain') {
+      setCsvFeedback({ type: 'error', message: 'Please upload a .csv file.' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const { rows, skippedErrors } = parseCSV(text);
+
+        if (rows.length === 0) {
+          setCsvFeedback({ type: 'error', message: 'No valid rows found in CSV.' });
+          return;
+        }
+
+        setRecipients(rows);
+        setTxStatuses([]);
+        setTxSigs([]);
+        setBatchDone(false);
+
+        const msg =
+          skippedErrors.length > 0
+            ? `${rows.length} employee${rows.length !== 1 ? 's' : ''} imported · ${skippedErrors.length} row${skippedErrors.length !== 1 ? 's' : ''} skipped`
+            : `${rows.length} employee${rows.length !== 1 ? 's' : ''} imported successfully`;
+
+        setCsvFeedback({ type: 'success', message: msg });
+      } catch (err) {
+        setCsvFeedback({ type: 'error', message: err.message });
+      }
+    };
+    reader.onerror = () => {
+      setCsvFeedback({ type: 'error', message: 'Failed to read file.' });
+    };
+    reader.readAsText(file);
+  }, []);
+
+  const handleFileInputChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) processCSVFile(file);
+    e.target.value = '';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processCSVFile(file);
+  };
 
   const addRecipient = () => {
     if (batchRunning) return;
@@ -108,15 +239,10 @@ export default function EnterpriseTab() {
       return;
     }
 
-    try {
-      recipients.forEach((r) => {
-        new (require('@solana/web3.js')?.PublicKey || Object)(r.address.trim());
-      });
-    } catch { /* validated below per-employee */ }
-
     setBatchRunning(true);
     setBatchDone(false);
     setGlobalError(null);
+    setCsvFeedback(null);
     setCurrentIndex(-1);
     setTxSigs(new Array(recipients.length).fill(null));
     setTxStatuses(new Array(recipients.length).fill(TX_STATUS.IDLE));
@@ -139,7 +265,6 @@ export default function EnterpriseTab() {
     const DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14vA1jJZRu2KptW37gZYGQEiAT');
     const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 
-    // Process each employee sequentially
     for (let i = 0; i < recipients.length; i++) {
       const { address, amount } = recipients[i];
       setCurrentIndex(i);
@@ -159,7 +284,6 @@ export default function EnterpriseTab() {
       }
 
       try {
-        // ── Step 1: Derive stealth address on backend ──────────────────────
         setEmployeeStatus(i, TX_STATUS.STEALTH);
         const stealthRes = await fetch('/api/generate-stealth-address', {
           method: 'POST',
@@ -174,12 +298,9 @@ export default function EnterpriseTab() {
 
         const { stealthPublicKey: stealthPubKeyStr, ephemeralPublicKey: ephemeralHex } =
           await stealthRes.json();
-
         const stealthPubKey = new PublicKey(stealthPubKeyStr);
 
-        // ── Step 2: Build transaction client-side ──────────────────────────
         setEmployeeStatus(i, TX_STATUS.BUILDING);
-
         const senderAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, publicKey);
         const stealthAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, stealthPubKey, true);
 
@@ -203,9 +324,7 @@ export default function EnterpriseTab() {
         }
 
         const transaction = new Transaction();
-        transaction.add(
-          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5000 })
-        );
+        transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5000 }));
 
         let stealthAtaExists = false;
         try {
@@ -218,18 +337,12 @@ export default function EnterpriseTab() {
         if (!stealthAtaExists) {
           transaction.add(
             createAssociatedTokenAccountInstruction(
-              publicKey,
-              stealthAta,
-              stealthPubKey,
-              DEVNET_USDC_MINT
+              publicKey, stealthAta, stealthPubKey, DEVNET_USDC_MINT
             )
           );
         }
 
-        transaction.add(
-          createTransferInstruction(senderAta, stealthAta, publicKey, transferAmount)
-        );
-
+        transaction.add(createTransferInstruction(senderAta, stealthAta, publicKey, transferAmount));
         transaction.add(
           new TransactionInstruction({
             keys: [],
@@ -238,32 +351,21 @@ export default function EnterpriseTab() {
           })
         );
 
-        // ── Step 3: CEO signs this specific employee's transaction ─────────
         setEmployeeStatus(i, TX_STATUS.SIGNING);
-
-        const { blockhash, lastValidBlockHeight } =
-          await connection.getLatestBlockhash('confirmed');
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = publicKey;
 
-        const signature = await sendTransaction(transaction, connection, {
-          maxRetries: 3,
-        });
+        const signature = await sendTransaction(transaction, connection, { maxRetries: 3 });
 
-        // ── Step 4: Wait for confirmation before next employee ─────────────
         setEmployeeStatus(i, TX_STATUS.CONFIRMING);
-
-        await connection.confirmTransaction(
-          { signature, blockhash, lastValidBlockHeight },
-          'confirmed'
-        );
+        await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
 
         setEmployeeSig(i, signature);
         setEmployeeStatus(i, TX_STATUS.SUCCESS);
       } catch (err) {
         const msg = err?.message || '';
         if (msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected')) {
-          // User cancelled in wallet — stop the whole batch
           setEmployeeStatus(i, TX_STATUS.FAILED);
           for (let j = i + 1; j < recipients.length; j++) {
             setEmployeeStatus(j, TX_STATUS.IDLE);
@@ -288,6 +390,7 @@ export default function EnterpriseTab() {
     setTxSigs([]);
     setBatchDone(false);
     setGlobalError(null);
+    setCsvFeedback(null);
     setCurrentIndex(-1);
   };
 
@@ -297,9 +400,104 @@ export default function EnterpriseTab() {
   return (
     <div className="flex flex-col gap-4">
 
-      {/* Employee list */}
+      {/* ── CSV Import Zone ─────────────────────────────────────────────── */}
+      {!isRunning && !batchDone && (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`glass-card p-4 flex flex-col gap-3 transition-all duration-200 ${
+            isDragging
+              ? 'border-aura-glow/60 bg-aura-glow/5'
+              : 'border-white/[0.08]'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">Import Payroll CSV</p>
+              <p className="text-xs text-white/30 mt-0.5">
+                Columns: <span className="font-mono text-white/40">walletAddress, amount</span>
+              </p>
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-aura-purple/20 border border-aura-glow/20 text-aura-glow text-xs font-medium hover:bg-aura-purple/30 active:scale-95 transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Upload CSV
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv,text/plain"
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
+          </div>
+
+          {/* Drag target area */}
+          <div
+            className={`flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed transition-all duration-200 ${
+              isDragging
+                ? 'border-aura-glow/50 bg-aura-glow/5'
+                : 'border-white/10'
+            }`}
+          >
+            <svg
+              className={`w-4 h-4 transition-colors ${isDragging ? 'text-aura-glow' : 'text-white/20'}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+              />
+            </svg>
+            <span className={`text-xs transition-colors ${isDragging ? 'text-aura-glow' : 'text-white/20'}`}>
+              {isDragging ? 'Drop to import' : 'or drag & drop your .csv here'}
+            </span>
+          </div>
+
+          {/* CSV feedback */}
+          {csvFeedback && (
+            <div
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium ${
+                csvFeedback.type === 'success'
+                  ? 'bg-green-500/10 border border-green-500/20 text-green-300'
+                  : 'bg-red-500/10 border border-red-500/20 text-red-300'
+              }`}
+            >
+              {csvFeedback.type === 'success' ? (
+                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+              )}
+              {csvFeedback.message}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Employee list ───────────────────────────────────────────────── */}
       <div className="glass-card p-5">
-        <h2 className="text-base font-semibold text-white mb-1">Batch Payroll</h2>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-semibold text-white">Batch Payroll</h2>
+          {recipients.length > 0 && !isRunning && !batchDone && csvFeedback?.type === 'success' && (
+            <button
+              onClick={() => {
+                setRecipients([{ ...EMPTY_RECIPIENT }]);
+                setCsvFeedback(null);
+              }}
+              className="text-xs text-white/20 hover:text-white/50 transition-colors"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
         <p className="text-xs text-white/40 mb-4">
           Each employee receives USDC to a unique stealth address. Signed sequentially — one
           Phantom confirmation per employee.
@@ -323,35 +521,35 @@ export default function EnterpriseTab() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${
-                        STATUS_DOT[txStatus]
-                      }`}
+                      className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${STATUS_DOT[txStatus]}`}
                     />
                     <span className="text-xs text-white/40">Employee {index + 1}</span>
-                    {showProgress && (
+                    {showProgress && txStatus !== TX_STATUS.IDLE && (
                       <span className={`text-xs font-medium ${STATUS_COLOR[txStatus]}`}>
-                        {txStatus !== TX_STATUS.IDLE ? STATUS_LABEL[txStatus] : ''}
+                        {STATUS_LABEL[txStatus]}
                       </span>
                     )}
                   </div>
-                  {recipients.length > 1 && !isRunning && !batchDone && (
-                    <button
-                      onClick={() => removeRecipient(index)}
-                      className="text-white/20 hover:text-red-400 text-xs transition-colors"
-                    >
-                      Remove
-                    </button>
-                  )}
-                  {sig && (
-                    <a
-                      href={`https://explorer.solana.com/tx/${sig}?cluster=devnet`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-aura-glow/60 hover:text-aura-glow transition-colors"
-                    >
-                      View ↗
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {sig && (
+                      <a
+                        href={`https://explorer.solana.com/tx/${sig}?cluster=devnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-aura-glow/60 hover:text-aura-glow transition-colors"
+                      >
+                        View ↗
+                      </a>
+                    )}
+                    {recipients.length > 1 && !isRunning && !batchDone && (
+                      <button
+                        onClick={() => removeRecipient(index)}
+                        className="text-white/20 hover:text-red-400 text-xs transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <input
@@ -392,7 +590,7 @@ export default function EnterpriseTab() {
         )}
       </div>
 
-      {/* Summary bar */}
+      {/* ── Summary bar ────────────────────────────────────────────────── */}
       <div className="glass-card p-4 flex items-center justify-between">
         <div>
           <p className="text-xs text-white/40">Total Disbursement</p>
@@ -407,7 +605,7 @@ export default function EnterpriseTab() {
         </div>
       </div>
 
-      {/* Live batch progress panel */}
+      {/* ── Live batch progress panel ───────────────────────────────────── */}
       {showProgress && (
         <div className="glass-card p-4 flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -421,7 +619,6 @@ export default function EnterpriseTab() {
             )}
           </div>
 
-          {/* Progress bar */}
           <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-aura-violet to-aura-purple transition-all duration-500"
@@ -439,7 +636,6 @@ export default function EnterpriseTab() {
             />
           </div>
 
-          {/* Per-employee status rows */}
           <div className="flex flex-col gap-1.5">
             {recipients.map((r, i) => {
               const txStatus = txStatuses[i] || TX_STATUS.IDLE;
@@ -460,13 +656,11 @@ export default function EnterpriseTab() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-white/40">{parseFloat(r.amount || 0).toFixed(2)} USDC</span>
+                    <span className="text-xs text-white/40">
+                      {parseFloat(r.amount || 0).toFixed(2)} USDC
+                    </span>
                     <span className={`text-xs font-medium w-24 text-right ${STATUS_COLOR[txStatus]}`}>
-                      {isActive && isRunning && txStatus !== TX_STATUS.IDLE
-                        ? STATUS_LABEL[txStatus]
-                        : txStatus !== TX_STATUS.IDLE
-                        ? STATUS_LABEL[txStatus]
-                        : '—'}
+                      {txStatus !== TX_STATUS.IDLE ? STATUS_LABEL[txStatus] : '—'}
                     </span>
                   </div>
                 </div>
@@ -474,7 +668,6 @@ export default function EnterpriseTab() {
             })}
           </div>
 
-          {/* Final summary */}
           {batchDone && (
             <div
               className={`mt-1 p-3 rounded-xl text-sm text-center font-medium ${
@@ -493,14 +686,14 @@ export default function EnterpriseTab() {
         </div>
       )}
 
-      {/* Global error */}
+      {/* ── Global error ────────────────────────────────────────────────── */}
       {globalError && (
         <div className="glass-card p-4 text-sm text-center border-red-500/30 text-red-300">
           {globalError}
         </div>
       )}
 
-      {/* Action buttons */}
+      {/* ── Action buttons ──────────────────────────────────────────────── */}
       {!batchDone ? (
         <button
           onClick={handleDisburse}
