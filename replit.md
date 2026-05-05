@@ -21,7 +21,7 @@ Mobile-first, confidential payroll and tipping application on Solana (Devnet).
 | Solana | `@solana/web3.js`, `@solana/wallet-adapter-react` |
 | Wallets | Phantom, Solflare |
 | Stealth crypto | `@noble/curves` (ed25519), `@noble/hashes` (sha256) |
-| Token | USDC on Devnet (`4zMMC9srt5Ri5X14vA1jJZRu2KptW37gZYGQEiAT`) |
+| Token | USDC on Devnet (`4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`) |
 
 ## Workflows
 

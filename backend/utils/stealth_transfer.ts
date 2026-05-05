@@ -3,7 +3,13 @@ import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, cre
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha256';
 
-const DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14vA1jJZRu2KptW37gZYGQEiAT');
+let DEVNET_USDC_MINT: PublicKey;
+try {
+  DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+} catch (e) {
+  console.error('[stealth_transfer] Failed to parse DEVNET_USDC_MINT:', '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', e);
+  throw e;
+}
 const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
 const DEVNET_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 

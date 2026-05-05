@@ -4,6 +4,13 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 const EMPTY_RECIPIENT = { address: '', amount: '' };
 const USDC_DECIMALS = 6;
 
+// ߔ GOOGLE STUDIO FIX: The Ultimate Ghost-Character Killer
+// Yeh function iPhone ke saare hidden/invisible spaces ko destroy kar dega
+const sanitizeKey = (key) => {
+  if (!key) return '';
+  return String(key).replace(/[^a-zA-Z0-9]/g, '');
+};
+
 const TX_STATUS = {
   IDLE: 'idle',
   STEALTH: 'stealth',
@@ -77,7 +84,7 @@ function parseCSV(text) {
       return;
     }
 
-    const address = cols[0].trim();
+    const address = sanitizeKey(cols[0]);
     const rawAmount = cols[1].trim();
     const amount = parseFloat(rawAmount);
 
@@ -220,14 +227,6 @@ export default function EnterpriseTab() {
     });
   };
 
-  const setStealthAddress = (index, addr) => {
-    setStealthAddresses((prev) => {
-      const next = [...prev];
-      next[index] = addr;
-      return next;
-    });
-  };
-
   const totalAmount = recipients.reduce(
     (sum, r) => sum + (parseFloat(r.amount) || 0),
     0
@@ -242,7 +241,7 @@ export default function EnterpriseTab() {
       return;
     }
 
-    const valid = recipients.every((r) => r.address.trim() && parseFloat(r.amount) > 0);
+    const valid = recipients.every((r) => sanitizeKey(r.address).length > 30 && parseFloat(r.amount) > 0);
     if (!valid) {
       setGlobalError('All employees need a valid address and USDC amount.');
       return;
@@ -253,147 +252,210 @@ export default function EnterpriseTab() {
     setGlobalError(null);
     setCsvFeedback(null);
     setCurrentIndex(-1);
+
+    const initialStatuses = new Array(recipients.length).fill(TX_STATUS.IDLE);
+    setTxStatuses(initialStatuses);
     setTxSigs(new Array(recipients.length).fill(null));
     setStealthAddresses(new Array(recipients.length).fill(null));
-    setTxStatuses(new Array(recipients.length).fill(TX_STATUS.IDLE));
 
-    const {
-      PublicKey,
-      Transaction,
-      TransactionInstruction,
-      ComputeBudgetProgram,
-    } = await import('@solana/web3.js');
+    try {
+      const { PublicKey, Transaction, TransactionInstruction, ComputeBudgetProgram } = await import('@solana/web3.js');
+      const { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, createTransferInstruction, getAccount } = await import('@solana/spl-token');
 
-    const {
-      getAssociatedTokenAddress,
-      createAssociatedTokenAccountInstruction,
-      createTransferInstruction,
-      getAccount,
-      TokenAccountNotFoundError,
-    } = await import('@solana/spl-token');
-
-    const DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14vA1jJZRu2KptW37gZYGQEiAT');
-    const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-
-    for (let i = 0; i < recipients.length; i++) {
-      const { address, amount } = recipients[i];
-      setCurrentIndex(i);
-
-      let employeePubKey;
+      // ߔ EXTREME SANITIZATION FOR MINTS
+      const mintStr = sanitizeKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+      let DEVNET_USDC_MINT;
       try {
-        employeePubKey = new PublicKey(address.trim());
-      } catch {
-        setEmployeeStatus(i, TX_STATUS.FAILED);
-        continue;
-      }
-
-      const parsedAmount = parseFloat(amount);
-      if (!parsedAmount || parsedAmount <= 0) {
-        setEmployeeStatus(i, TX_STATUS.FAILED);
-        continue;
-      }
-
-      try {
-        setEmployeeStatus(i, TX_STATUS.STEALTH);
-        const stealthRes = await fetch('/api/generate-stealth-address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recipientPublicKey: employeePubKey.toBase58() }),
-        });
-
-        if (!stealthRes.ok) {
-          const err = await stealthRes.json();
-          throw new Error(err.error || 'Stealth address generation failed.');
-        }
-
-        const { stealthPublicKey: stealthPubKeyStr, ephemeralPublicKey: ephemeralHex } =
-          await stealthRes.json();
-        const stealthPubKey = new PublicKey(stealthPubKeyStr);
-        setStealthAddress(i, stealthPubKeyStr);
-
-        setEmployeeStatus(i, TX_STATUS.BUILDING);
-        const senderAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, publicKey);
-        const stealthAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, stealthPubKey, true);
-
-        let senderAccount;
-        try {
-          senderAccount = await getAccount(connection, senderAta);
-        } catch (e) {
-          if (e instanceof TokenAccountNotFoundError) {
-            throw new Error('No USDC token account found. Fund your wallet with devnet USDC.');
-          }
-          throw e;
-        }
-
-        const transferAmount = BigInt(Math.round(parsedAmount * 10 ** USDC_DECIMALS));
-        if (senderAccount.amount < transferAmount) {
-          throw new Error(
-            `Insufficient USDC for employee ${i + 1}. Balance: ${(
-              Number(senderAccount.amount) / 10 ** USDC_DECIMALS
-            ).toFixed(2)} USDC.`
-          );
-        }
-
-        const transaction = new Transaction();
-        transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 5000 }));
-
-        let stealthAtaExists = false;
-        try {
-          await getAccount(connection, stealthAta);
-          stealthAtaExists = true;
-        } catch {
-          stealthAtaExists = false;
-        }
-
-        if (!stealthAtaExists) {
-          transaction.add(
-            createAssociatedTokenAccountInstruction(
-              publicKey, stealthAta, stealthPubKey, DEVNET_USDC_MINT
-            )
-          );
-        }
-
-        transaction.add(createTransferInstruction(senderAta, stealthAta, publicKey, transferAmount));
-        transaction.add(
-          new TransactionInstruction({
-            keys: [],
-            programId: MEMO_PROGRAM_ID,
-            data: Buffer.from(`Aura-Enterprise|Payroll|${ephemeralHex}`, 'utf-8'),
-          })
-        );
-
-        setEmployeeStatus(i, TX_STATUS.SIGNING);
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = publicKey;
-
-        const signature = await sendTransaction(transaction, connection, { maxRetries: 3 });
-
-        setEmployeeStatus(i, TX_STATUS.CONFIRMING);
-        await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
-
-        setEmployeeSig(i, signature);
-        setEmployeeStatus(i, TX_STATUS.SUCCESS);
+        console.log(`[DEBUG] DEVNET_USDC_MINT input: "${mintStr}", length: ${mintStr?.length}, type: ${typeof mintStr}`);
+        DEVNET_USDC_MINT = new PublicKey(mintStr);
       } catch (err) {
-        const msg = err?.message || '';
-        if (msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected')) {
+        setGlobalError(`Error: DEVNET_USDC_MINT address is invalid. Input: "${mintStr}"`);
+        setBatchRunning(false);
+        setBatchDone(true);
+        return;
+      }
+
+      const memoStr = sanitizeKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+      let MEMO_PROGRAM_ID;
+      try {
+        console.log(`[DEBUG] MEMO_PROGRAM_ID input: "${memoStr}", length: ${memoStr?.length}, type: ${typeof memoStr}`);
+        MEMO_PROGRAM_ID = new PublicKey(memoStr);
+      } catch (err) {
+        setGlobalError(`Error: MEMO_PROGRAM_ID address is invalid. Input: "${memoStr}"`);
+        setBatchRunning(false);
+        setBatchDone(true);
+        return;
+      }
+
+      // PHASE 1: PRE-FETCH ALL STEALTH ADDRESSES
+      const stealthDataArray = new Array(recipients.length).fill(null);
+
+      for (let i = 0; i < recipients.length; i++) {
+        setEmployeeStatus(i, TX_STATUS.STEALTH);
+
+        // ߔ EXTREME SANITIZATION FOR EMPLOYEE ADDRESS
+        const employeePubKeyStr = sanitizeKey(recipients[i].address);
+
+        try {
+          console.log(`[DEBUG] Employee ${i + 1} Address input: "${employeePubKeyStr}", length: ${employeePubKeyStr?.length}, type: ${typeof employeePubKeyStr}`);
+          new PublicKey(employeePubKeyStr);
+        } catch (err) {
+          console.error(`Invalid Public Key for Employee ${i}:`, err);
           setEmployeeStatus(i, TX_STATUS.FAILED);
-          for (let j = i + 1; j < recipients.length; j++) {
-            setEmployeeStatus(j, TX_STATUS.IDLE);
-          }
-          setGlobalError('Batch cancelled — transaction rejected in wallet.');
+          setGlobalError(`Error: Employee ${i + 1} address is invalid. Input: "${employeePubKeyStr}"`);
           setBatchRunning(false);
-          setCurrentIndex(-1);
           setBatchDone(true);
           return;
         }
-        setEmployeeStatus(i, TX_STATUS.FAILED);
-      }
-    }
 
-    setBatchRunning(false);
-    setCurrentIndex(-1);
-    setBatchDone(true);
+        try {
+          const stealthRes = await fetch('/api/generate-stealth-address', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipientPublicKey: employeePubKeyStr }),
+          });
+
+          if (!stealthRes.ok) {
+            const errText = await stealthRes.text();
+            throw new Error(`API Error: ${stealthRes.status} - ${errText}`);
+          }
+
+          const data = await stealthRes.json();
+          if (!data.stealthPublicKey) throw new Error('Missing stealthPublicKey');
+
+          stealthDataArray[i] = data;
+
+          setStealthAddresses((prev) => {
+            const next = [...prev];
+            next[i] = data.stealthPublicKey;
+            return next;
+          });
+
+        } catch (err) {
+          console.error(`Stealth Fetch Failed for Employee ${i}:`, err);
+          setEmployeeStatus(i, TX_STATUS.FAILED);
+          setGlobalError(`API Error Employee ${i + 1}: ${err.message}`);
+          setBatchRunning(false);
+          setBatchDone(true);
+          return; 
+        }
+      }
+
+      // PHASE 2: TRANSACTION EXECUTION LOOP
+      for (let i = 0; i < recipients.length; i++) {
+        if (!stealthDataArray[i]) continue; 
+
+        setCurrentIndex(i);
+        const { amount } = recipients[i];
+        const parsedAmount = parseFloat(amount);
+
+        // ߔ EXTREME SANITIZATION FOR GENERATED STEALTH ADDRESS
+        const stealthPubKeyStr = sanitizeKey(stealthDataArray[i].stealthPublicKey);
+        const ephemeralHex = stealthDataArray[i].ephemeralPublicKey;
+
+        let stealthPubKey;
+        try {
+          console.log(`[DEBUG] Stealth Address Employee ${i + 1} input: "${stealthPubKeyStr}", length: ${stealthPubKeyStr?.length}, type: ${typeof stealthPubKeyStr}`);
+          stealthPubKey = new PublicKey(stealthPubKeyStr);
+        } catch (err) {
+          console.error(`Invalid Stealth Public Key for Employee ${i}:`, err);
+          setEmployeeStatus(i, TX_STATUS.FAILED);
+          setGlobalError(`Error: Generated Stealth Address for Employee ${i + 1} is invalid. Input: "${stealthPubKeyStr}"`);
+          setBatchRunning(false);
+          setBatchDone(true);
+          return;
+        }
+
+        try {
+          setEmployeeStatus(i, TX_STATUS.BUILDING);
+
+          const senderAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, publicKey);
+          const stealthAta = await getAssociatedTokenAddress(DEVNET_USDC_MINT, stealthPubKey, true);
+
+          let senderAccount;
+          try {
+            senderAccount = await getAccount(connection, senderAta);
+          } catch (e) {
+            throw new Error('No USDC token account found. Fund wallet.');
+          }
+
+          const transferAmount = BigInt(Math.round(parsedAmount * 10 ** USDC_DECIMALS));
+          if (senderAccount.amount < transferAmount) {
+            throw new Error(`Insufficient USDC. Needed ${parsedAmount}`);
+          }
+
+          const transaction = new Transaction();
+          transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10000 })); 
+
+          let stealthAtaExists = false;
+          try {
+            await getAccount(connection, stealthAta);
+            stealthAtaExists = true;
+          } catch {
+            stealthAtaExists = false;
+          }
+
+          if (!stealthAtaExists) {
+            transaction.add(
+              createAssociatedTokenAccountInstruction(publicKey, stealthAta, stealthPubKey, DEVNET_USDC_MINT)
+            );
+          }
+
+          transaction.add(createTransferInstruction(senderAta, stealthAta, publicKey, transferAmount));
+          transaction.add(
+            new TransactionInstruction({
+              keys: [],
+              programId: MEMO_PROGRAM_ID,
+              data: Buffer.from(`Aura-Enterprise|Payroll|${ephemeralHex}`, 'utf-8'),
+            })
+          );
+
+          setEmployeeStatus(i, TX_STATUS.SIGNING);
+
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+          transaction.recentBlockhash = blockhash;
+          transaction.feePayer = publicKey;
+
+          const signature = await sendTransaction(transaction, connection, { 
+            maxRetries: 3,
+            skipPreflight: false 
+          });
+
+          setEmployeeStatus(i, TX_STATUS.CONFIRMING);
+          await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+
+          setEmployeeSig(i, signature);
+          setEmployeeStatus(i, TX_STATUS.SUCCESS);
+
+        } catch (err) {
+          console.error(`Transaction Failed for Employee ${i}:`, err);
+          const msg = err?.message || '';
+
+          if (msg.toLowerCase().includes('user rejected') || msg.toLowerCase().includes('rejected')) {
+            setEmployeeStatus(i, TX_STATUS.FAILED);
+            for (let j = i + 1; j < recipients.length; j++) {
+              setEmployeeStatus(j, TX_STATUS.IDLE);
+            }
+            setGlobalError('Batch cancelled — transaction rejected in Phantom.');
+            setBatchRunning(false);
+            setCurrentIndex(-1);
+            setBatchDone(true);
+            return;
+          }
+
+          setEmployeeStatus(i, TX_STATUS.FAILED);
+          setGlobalError(`Employee ${i + 1} Failed: ${msg}`);
+        }
+      }
+
+    } catch (criticalErr) {
+      console.error("Critical Setup Error:", criticalErr);
+      setGlobalError(`Critical Error: ${criticalErr.message}`);
+    } finally {
+      setBatchRunning(false);
+      setCurrentIndex(-1);
+      setBatchDone(true);
+    }
   };
 
   const handleExportReport = () => {
@@ -481,7 +543,6 @@ export default function EnterpriseTab() {
             />
           </div>
 
-          {/* Drag target area */}
           <div
             className={`flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed transition-all duration-200 ${
               isDragging
@@ -502,7 +563,6 @@ export default function EnterpriseTab() {
             </span>
           </div>
 
-          {/* CSV feedback */}
           {csvFeedback && (
             <div
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium ${
@@ -745,7 +805,7 @@ export default function EnterpriseTab() {
           className="btn-primary"
         >
           {isRunning
-            ? `Paying Employee ${currentIndex + 1} of ${recipients.length}...`
+            ? `Running Payroll...`
             : 'Disburse Payroll'}
         </button>
       ) : (
