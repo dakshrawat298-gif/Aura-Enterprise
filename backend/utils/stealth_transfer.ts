@@ -5,6 +5,7 @@ import { sha256 } from '@noble/hashes/sha256';
 
 let DEVNET_USDC_MINT: PublicKey;
 try {
+  // ߔ Asli Circle Devnet USDC Mint
   DEVNET_USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
 } catch (e) {
   console.error('[stealth_transfer] Failed to parse DEVNET_USDC_MINT:', '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', e);
@@ -45,21 +46,44 @@ async function withRpcRetry<T>(fn: () => Promise<T>, maxRetries: number = 5): Pr
 export function generateStealthAddress(recipientPublicKey: string): StealthAddressResult {
   try {
     const receiverPubBytes = new PublicKey(recipientPublicKey).toBytes();
-    const receiverPoint = ed25519.ProjectivePoint.fromHex(receiverPubBytes);
-    const ephemeralPriv = ed25519.utils.randomPrivateKey();
-    const ephemeralPub = ed25519.getPublicKey(ephemeralPriv);
-    const ephemeralPrivBigInt = bytesToBigInt(ephemeralPriv) % ed25519.CURVE.n;
-    const sharedSecretPoint = receiverPoint.multiply(ephemeralPrivBigInt);
-    const hBytes = sha256(sharedSecretPoint.toRawBytes());
+
+    // ߔ FIX 1: Convert to hex string for @noble/curves
+    const receiverHex = Buffer.from(receiverPubBytes).toString('hex');
+    // ߔ FIX 2: Use ExtendedPoint (sahi method Ed25519 ke liye)
+    const receiverPoint = ed25519.ExtendedPoint.fromHex(receiverHex);
+
+    const ephemeralScalarBytes = ed25519.utils.randomPrivateKey();
+
+    // ߔ FIX 3: Clamp the scalar (Ed25519 standard taaki funds lock na ho)
+    ephemeralScalarBytes[0] &= 248;
+    ephemeralScalarBytes[31] &= 127;
+    ephemeralScalarBytes[31] |= 64;
+
+    const ephemeralScalar = bytesToBigInt(ephemeralScalarBytes) % ed25519.CURVE.n;
+
+    // R = r * G (Ephemeral Public Key)
+    const ephemeralPoint = ed25519.ExtendedPoint.BASE.multiply(ephemeralScalar);
+    const ephemeralPub = ephemeralPoint.toRawBytes();
+
+    // S = r * Q (Shared Secret)
+    const sharedSecretPoint = receiverPoint.multiply(ephemeralScalar);
+    const sharedSecretBytes = sharedSecretPoint.toRawBytes();
+
+    const hBytes = sha256(sharedSecretBytes);
     const hBigInt = bytesToBigInt(hBytes) % ed25519.CURVE.n;
-    const hG = ed25519.ProjectivePoint.BASE.multiply(hBigInt);
+
+    const hG = ed25519.ExtendedPoint.BASE.multiply(hBigInt);
     const stealthPoint = receiverPoint.add(hG);
+
     return {
       stealthPublicKey: new PublicKey(stealthPoint.toRawBytes()),
       ephemeralPublicKey: ephemeralPub,
     };
-  } catch (error) {
-    throw new Error(`Failed to generate stealth address`);
+  } catch (error: any) {
+    // ߔ FIX 4: Unmasking the error
+    console.error('[generateStealthAddress] Error message:', error.message);
+    console.error('[generateStealthAddress] Error stack:', error.stack);
+    throw new Error(error.message);
   }
 }
 
