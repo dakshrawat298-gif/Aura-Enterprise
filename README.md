@@ -1,8 +1,8 @@
-# ߌ Aura Enterprise
+# 🚀 Aura Enterprise
 **Mobile-First Confidential Payroll & Payments Protocol on Solana**
 
-> ߎ **[Watch Demo Video on YouTube](INSERT_YOUR_YOUTUBE_LINK_HERE)**
-> ߔ **[Access the Live App Here](INSERT_YOUR_LIVE_LINK_HERE)**
+> 🎥 **[Watch Demo Video on YouTube](https://youtube.com/shorts/YJtjWpPighk?si=sU-UzRON93FDfmM3)**
+> 🌐 **[Access the Live App Here](https://4f61b5d1-03e6-4bc3-882d-c066684441dd-00-34c65znlnwerm.pike.replit.dev/)**
 
 [![Solana Devnet](https://img.shields.io/badge/Network-Solana_Devnet-green.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#)
@@ -19,7 +19,7 @@ As the Solana ecosystem accelerates toward mobile adoption, the underlying priva
 
 ---
 
-## ߛ The Problem vs. ߟ The Solution
+## 🛑 The Problem vs. 💡 The Solution
 
 **The Problem:** Public ledgers are fundamentally incompatible with standard business operations. When a DAO or enterprise runs payroll on-chain, every employee's salary, wallet balance, and transaction history are permanently exposed. Existing privacy solutions are either non-compliant, prohibitively expensive, or lack a seamless user experience.
 
@@ -30,9 +30,10 @@ As the Solana ecosystem accelerates toward mobile adoption, the underlying priva
 
 ---
 
-## ߛ Technical Architecture & Data Flow
+## ⚙️ Technical Architecture & Data Flow
 
 Aura leverages advanced elliptic curve cryptography (`@noble/curves/ed25519`) to derive stealth addresses on the fly, entirely client-side.
+
 ```mermaid
 graph TD
     A[Enterprise Employer] -->|Uploads Payroll CSV| B(Aura Protocol Client)
@@ -57,12 +58,12 @@ graph TD
  3. **Shared Secret Calculation:** Utilizing ECDH (Elliptic Curve Diffie-Hellman), the system multiplies the receiver's public point by the ephemeral scalar.
  4. **Stealth Derivation:** The resulting shared secret is hashed (sha256), multiplied by the curve's base point, and cryptographically added to the receiver's original public key.
 
-## ߎ Protocol Alignment
+## 🎯 Protocol Alignment
  1. **Payments & Stablecoins:** Built natively for USDC, Aura acts as a stablecoin-powered remittance and payroll primitive.
  2. **Mobile-First Infrastructure:** Designed with a hyper-optimized UX, preparing the network for the next wave of mobile hardware adoption.
  3. **Open Ecosystem:** Aura’s cryptographic utility libraries are built to be entirely open-source and composable for other developers building on Solana.
 
-## ߚ Quick Start (Local Deployment)
+## 🚀 Quick Start (Local Deployment)
 Aura Enterprise is currently live on the Solana Devnet.
 
 ### Prerequisites
@@ -73,7 +74,7 @@ Aura Enterprise is currently live on the Solana Devnet.
 ### Installation
 ```bash
 # Clone the repository
-git clone [https://github.com/yourusername/aura-enterprise.git](https://github.com/yourusername/aura-enterprise.git)
+git clone https://github.com/yourusername/aura-enterprise.git
 cd aura-enterprise
 
 # Install core dependencies
@@ -86,13 +87,13 @@ cd client && npm install && cd ..
 npm run dev
 ```
 
-## ߗ Roadmap to Mainnet
+## 🗺️ Roadmap to Mainnet
 Aura Enterprise is executing a focused transition from a Devnet prototype to a Mainnet Beta product:
  * **Phase 1: Cryptographic Audit:** Comprehensive security auditing of the stealth_transfer.ts module to ensure zero vulnerabilities and prevent fund lockups before Mainnet deployment.
  * **Phase 2: Automated Receiver Infrastructure:** Engineering a background client that allows users to automatically detect, scan, and sweep funds from their stealth addresses seamlessly.
  * **Phase 3: Mainnet Beta & Enterprise Onboarding:** Deploying the V1 protocol and onboarding our initial cohort of Web3 native startups and DAOs for live payroll runs.
 
-## ߛ License & Disclaimer
+## 📜 License & Disclaimer
 This project is licensed under the MIT License. Built for the Solana ecosystem.
 
 *Note: Aura Enterprise is currently in Devnet Beta. Do not use with mainnet funds until all security audits are finalized.*
