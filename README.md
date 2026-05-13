@@ -2,7 +2,7 @@
 **Mobile-First Confidential Payroll & Payments Protocol on Solana**
 
 > 🎥 **[Watch Demo Video on YouTube](https://youtube.com/shorts/YJtjWpPighk?si=sU-UzRON93FDfmM3)**
-> 🌐 **[Access the Live App Here](https://4f61b5d1-03e6-4bc3-882d-c066684441dd-00-34c65znlnwerm.pike.replit.dev/)**
+> 🌐 **[Access the Live App Here](https://aura-enterprise-l1a0.onrender.com/)**
 
 [![Solana Devnet](https://img.shields.io/badge/Network-Solana_Devnet-green.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#)
