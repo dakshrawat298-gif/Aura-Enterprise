@@ -9,6 +9,11 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// 🚨 THE CRON-JOB FIX (Keep-Awake Route)
+app.get('/api/ping', (req, res) => {
+  res.status(200).send('pong');
+});
+
 // API Routes
 app.use('/api', require('./routes/stealth'));
 
